@@ -1,10 +1,10 @@
-const Project = require('../models/Project');
+const Project = require('../models/Project').Project;
 const Client = require('../models/Client');
 const Employee = require('../models/Employee');
 
 exports.generateReport = async (req, res) => {
   try {
-    const projects = await Project.find().populate('clientId managerId team', 'name role');
+    const projects = await Project.find().populate('clientId', 'name').populate('managerId', 'name');
     const clients = await Client.find();
     const employees = await Employee.find().populate('userId', 'name role');
 

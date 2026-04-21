@@ -1,49 +1,77 @@
-const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://127.0.0.1:11434/v1/completions';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'codellama:latest';
+const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://127.0.0.1:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'codellama';
 
-const buildBody = (model, prompt, options) => ({
+const buildBodyOpenAI = (model, prompt, options) => ({
   model,
   prompt,
-  temperature: options.temperature ?? 0.2,
-  max_tokens: options.maxTokens ?? 512,
+  temperature: options.temperature ?? 0.3,
+  max_tokens: options.maxTokens ?? 1024,
+});
+
+const buildBodyNative = (model, prompt, options) => ({
+  model,
+  prompt,
+  stream: false,
+  options: {
+    temperature: options.temperature ?? 0.3,
+    num_predict: options.maxTokens ?? 1024,
+  }
 });
 
 const callOllama = async (prompt, options = {}) => {
   const modelName = OLLAMA_MODEL;
-  let response = await fetch(OLLAMA_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(buildBody(modelName, prompt, options)),
-  });
-
-  if (!response.ok && response.status === 404 && !modelName.includes(':')) {
-    const fallbackModel = `${modelName}:latest`;
-    response = await fetch(OLLAMA_API_URL, {
+  
+  let response = null;
+  let lastError = null;
+  
+  // Try OpenAI-compatible endpoint first
+  try {
+    const openaiUrl = `${OLLAMA_API_URL}/v1/completions`;
+    response = await fetch(openaiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildBody(fallbackModel, prompt, options)),
+      body: JSON.stringify(buildBodyOpenAI(modelName, prompt, options)),
     });
+
+    if (response.ok) {
+      const json = await response.json();
+      if (json?.choices && json.choices.length > 0) {
+        return json.choices[0]?.text || json.choices[0]?.message?.content || '';
+      }
+      if (json?.completion) {
+        return json.completion;
+      }
+    }
+  } catch (e) {
+    lastError = e;
+    console.log('OpenAI endpoint failed, trying native API');
   }
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Ollama request failed: ${response.status} ${text}`);
+  // Try native Ollama API
+  try {
+    const nativeUrl = `${OLLAMA_API_URL}/api/generate`;
+    response = await fetch(nativeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildBodyNative(modelName, prompt, options)),
+    });
+
+    if (response.ok) {
+      const json = await response.json();
+      return json?.response || json?.text || JSON.stringify(json);
+    }
+  } catch (e) {
+    lastError = e;
+    console.log('Native API also failed');
   }
 
-  const json = await response.json();
-  if (typeof json === 'string') {
-    return json;
+  // If both fail, throw error
+  if (!response || !response.ok) {
+    const errorText = response ? await response.text() : lastError?.message || 'Unknown error';
+    throw new Error(`Ollama request failed: ${response?.status || 'unavailable'} - ${errorText}`);
   }
 
-  if (json?.completion) {
-    return json.completion;
-  }
-
-  if (json?.choices && json.choices.length > 0) {
-    return json.choices[0]?.text || json.choices[0]?.message?.content || JSON.stringify(json);
-  }
-
-  return JSON.stringify(json);
+  return 'Désolé, je n\'ai pas pu générer de réponse. Veuillez vérifier que Ollama est en cours d\'exécution.';
 };
 
 module.exports = {
