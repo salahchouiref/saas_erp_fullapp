@@ -7,110 +7,263 @@ const Reminder = require('../models/Reminder');
 
 const conversationHistory = {};
 
-const getDatabaseContext = async () => {
+const performRAGLookup = async (query) => {
   try {
-    const [employees, clients, projects, tasks, users] = await Promise.all([
-      Employee.find({}).limit(100).lean(),
-      Client.find({}).limit(100).lean(),
-      Project.find({}).limit(50).lean(),
-      Task.find({}).limit(50).lean(),
-      User.find({}).limit(50).lean()
-    ]);
+    const searchTerm = query.toLowerCase().trim();
 
-    return {
-      employees: employees.map(e => ({
-        id: e._id,
-        nom: `${e.firstName} ${e.lastName}`,
-        email: e.email,
-        poste: e.position,
-        departement: e.department,
-        statut: e.status,
-        salaire: e.salary,
-        dateEmbauche: e.hireDate
-      })),
-      clients: clients.map(c => ({
-        id: c._id,
-        nom: c.name,
-        email: c.email,
-        entreprise: c.company,
-        secteur: c.industry,
-        telephone: c.phone,
-        statut: c.status,
-        adresse: c.address
-      })),
-      projects: projects.map(p => ({
-        id: p._id,
-        nom: p.name,
-        description: p.description,
-        statut: p.status,
-        priorite: p.priority,
-        progression: p.progress,
-        budget: p.budget,
-        debut: p.startDate,
-        fin: p.endDate,
-        clientId: p.clientId
-      })),
-      tasks: tasks.map(t => ({
-        id: t._id,
-        titre: t.title,
-        statut: t.status,
-        priorite: t.priority,
-        projetId: t.projectId,
-        employeId: t.assignedTo,
-        echeance: t.dueDate
-      })),
-      users: users.map(u => ({
-        id: u._id,
-        nom: u.name,
-        email: u.email,
-        role: u.role,
-        statut: u.status
-      })),
-      stats: {
-        totalEmployes: employees.length,
-        employesActifs: employees.filter(e => e.status === 'active').length,
-        totalClients: clients.length,
-        clientsActifs: clients.filter(c => c.status === 'active').length,
-        totalProjets: projects.length,
-        projetsActifs: projects.filter(p => p.status === 'active').length,
-        projetsTermines: projects.filter(p => p.status === 'completed').length,
-        totalTaches: tasks.length,
-        tachesTerminees: tasks.filter(t => t.status === 'completed').length,
-        totalUsers: users.length
-      }
-    };
+    // Quick keyword detection for entity types
+    const hasEmployeeKeywords = /\b(employé|employee|staff|personnel|collaborateur|développeur|manager|directeur)\b/i.test(searchTerm);
+    const hasClientKeywords = /\b(client|clientèle|customer|entreprise|compagnie|société)\b/i.test(searchTerm);
+    const hasProjectKeywords = /\b(projet|project|mission|chantier|étude)\b/i.test(searchTerm);
+    const hasTaskKeywords = /\b(tâche|task|todo|action|travail)\b/i.test(searchTerm);
+    const hasUserKeywords = /\b(utilisateur|user|compte|admin|superadmin)\b/i.test(searchTerm);
+
+    // Determine which entities to search (prioritize detected entities, fallback to all)
+    const entitiesToSearch = [];
+    if (hasEmployeeKeywords) entitiesToSearch.push('employee');
+    if (hasClientKeywords) entitiesToSearch.push('client');
+    if (hasProjectKeywords) entitiesToSearch.push('project');
+    if (hasTaskKeywords) entitiesToSearch.push('task');
+    if (hasUserKeywords) entitiesToSearch.push('user');
+
+    // If no keywords detected or general search, search priority entities
+    if (entitiesToSearch.length === 0) {
+      entitiesToSearch.push('employee', 'client', 'project');
+    }
+
+    const searchPromises = [];
+
+    // Optimized: Only search name and email fields for speed
+    if (entitiesToSearch.includes('employee')) {
+      searchPromises.push(
+        Employee.find({
+          $or: [
+            { firstName: { $regex: searchTerm, $options: 'i' } },
+            { lastName: { $regex: searchTerm, $options: 'i' } },
+            { email: { $regex: searchTerm, $options: 'i' } }
+          ]
+        }).select('firstName lastName email position department status').limit(3).lean()
+      );
+    } else {
+      searchPromises.push(Promise.resolve([]));
+    }
+
+    if (entitiesToSearch.includes('client')) {
+      searchPromises.push(
+        Client.find({
+          $or: [
+            { name: { $regex: searchTerm, $options: 'i' } },
+            { email: { $regex: searchTerm, $options: 'i' } },
+            { company: { $regex: searchTerm, $options: 'i' } }
+          ]
+        }).select('name email company industry status').limit(3).lean()
+      );
+    } else {
+      searchPromises.push(Promise.resolve([]));
+    }
+
+    if (entitiesToSearch.includes('project')) {
+      searchPromises.push(
+        Project.find({
+          $or: [
+            { name: { $regex: searchTerm, $options: 'i' } }
+          ]
+        }).select('name description status priority progress').limit(3).lean()
+      );
+    } else {
+      searchPromises.push(Promise.resolve([]));
+    }
+
+    if (entitiesToSearch.includes('task')) {
+      searchPromises.push(
+        Task.find({
+          title: { $regex: searchTerm, $options: 'i' }
+        }).select('title status priority').limit(3).lean()
+      );
+    } else {
+      searchPromises.push(Promise.resolve([]));
+    }
+
+    if (entitiesToSearch.includes('user')) {
+      searchPromises.push(
+        User.find({
+          $or: [
+            { name: { $regex: searchTerm, $options: 'i' } },
+            { email: { $regex: searchTerm, $options: 'i' } }
+          ]
+        }).select('name email role status').limit(3).lean()
+      );
+    } else {
+      searchPromises.push(Promise.resolve([]));
+    }
+
+    const [employees, clients, projects, tasks, users] = await Promise.all(searchPromises);
+
+    const results = [];
+
+    // Simplified data formatting for speed
+    employees.forEach(emp => {
+      results.push({
+        type: 'EMPLOYÉ',
+        data: {
+          nom: `${emp.firstName} ${emp.lastName}`,
+          poste: emp.position,
+          statut: emp.status
+        }
+      });
+    });
+
+    clients.forEach(client => {
+      results.push({
+        type: 'CLIENT',
+        data: {
+          nom: client.name,
+          entreprise: client.company,
+          statut: client.status
+        }
+      });
+    });
+
+    projects.forEach(project => {
+      results.push({
+        type: 'PROJET',
+        data: {
+          nom: project.name,
+          statut: project.status,
+          progression: `${project.progress || 0}%`
+        }
+      });
+    });
+
+    tasks.forEach(task => {
+      results.push({
+        type: 'TÂCHE',
+        data: {
+          titre: task.title,
+          statut: task.status
+        }
+      });
+    });
+
+    users.forEach(user => {
+      results.push({
+        type: 'UTILISATEUR',
+        data: {
+          nom: user.name,
+          rôle: user.role
+        }
+      });
+    });
+
+    return results.slice(0, 5); // Limit to 5 most relevant results
   } catch (error) {
-    console.error('Error fetching database context:', error.message);
-    return null;
+    console.error('RAG lookup error:', error.message);
+    return [];
   }
 };
 
-const assistantSystemPrompt = (dbContext) => `Tu es l'assistant IA expert pour une application SaaS de gestion d'audit d'entreprise au Maroc.
+// Cache for database stats (refresh every 5 minutes)
+let cachedStats = null;
+let statsLastUpdated = 0;
+const STATS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-CONTEXTE DE L'APPLICATION:
-- Application SaaS de gestion d'entreprise
-- Utilisée au Maroc (données en français)
-- Entités gérées: Employés, Clients, Projets, Tâches, Utilisateurs
+const getDatabaseStats = async () => {
+  const now = Date.now();
+  if (cachedStats && (now - statsLastUpdated) < STATS_CACHE_TTL) {
+    return cachedStats;
+  }
 
-DONNÉES ACTUELLES DE LA BASE DE DONNÉES:
-${JSON.stringify(dbContext, null, 2)}
+  try {
+    const [employeeStats, clientStats, projectStats, taskStats, userStats] = await Promise.all([
+      Employee.aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } }
+          }
+        }
+      ]),
+      Client.aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } }
+          }
+        }
+      ]),
+      Project.aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            active: { $sum: { $cond: [{ $in: ["$status", ["active", "in_progress"]] }, 1, 0] } },
+            completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } }
+          }
+        }
+      ]),
+      Task.aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            completed: { $sum: { $cond: [{ $in: ["$status", ["done", "completed"]] }, 1, 0] } }
+          }
+        }
+      ]),
+      User.countDocuments()
+    ]);
 
-CAPACITÉS DE L'ASSISTANT:
-1. **Questions sur les données**: LISTER, COMPTER, RECHERCHER les enregistrements
-2. **Statistiques**: Calculer des métriques depuis les données réelles
-3. **Actions CRUD**: Créer, modifier, supprimer des enregistrements
-4. **Recommandations**: Analyser et suggérer des actions
+    cachedStats = {
+      totalEmployes: employeeStats[0]?.total || 0,
+      employesActifs: employeeStats[0]?.active || 0,
+      totalClients: clientStats[0]?.total || 0,
+      clientsActifs: clientStats[0]?.active || 0,
+      totalProjets: projectStats[0]?.total || 0,
+      projetsActifs: projectStats[0]?.active || 0,
+      projetsTermines: projectStats[0]?.completed || 0,
+      totalTaches: taskStats[0]?.total || 0,
+      tachesTerminees: taskStats[0]?.completed || 0,
+      totalUsers: userStats || 0
+    };
 
-RÈGLES CRITIQUES - SUIS CES RÈGLES IMPÉRATIVEMENT:
-1. Utilise TOUJOURS les données réelles ci-dessus pour répondre
-2. Pour "combien", "liste", "affiche" - compte/liste depuis les données JSON
-3. Pour les statistiques - calcule depuis les données réelles
-4. Ne JAMAIS inventer des données qui ne sont pas dans le JSON
-5. Si tu ne trouves pas la réponse dans les données, dis "Je n'ai pas cette information dans la base de données"
-6. Réponds en français de manière professionnelle
-7. Sois précis avec les noms, dates, chiffres des données
+    statsLastUpdated = now;
+    return cachedStats;
+  } catch (error) {
+    console.error('Error fetching database stats:', error.message);
+    return {
+      totalEmployes: 0,
+      employesActifs: 0,
+      totalClients: 0,
+      clientsActifs: 0,
+      totalProjets: 0,
+      projetsActifs: 0,
+      projetsTermines: 0,
+      totalTaches: 0,
+      tachesTerminees: 0,
+      totalUsers: 0
+    };
+  }
+};
 
-QUESTION DE L'UTILISATEUR:`;
+const assistantSystemPrompt = (dbContext) => `Assistant IA SaaS Marocain.
+
+CONTEXTE: ${JSON.stringify(dbContext)}
+
+CAPACITÉS:
+- Consultation données (lister, compter, rechercher)
+- Statistiques et métriques
+- Actions CRUD
+- Recommandations
+
+RÈGLES:
+- Données vérifiées uniquement
+- Français professionnel
+- Précision maximale
+- "Non disponible" si absent
+
+QUESTION:`;
 
 
 
@@ -136,103 +289,158 @@ const parseQueryIntent = (message) => {
 
 const answerFromDatabase = async (intent, message, dbContext) => {
   const lower = message.toLowerCase();
-  const stats = dbContext.stats || {};
-  
+
   switch (intent) {
     case 'employee': {
-      let employees = dbContext.employees || [];
-      
-      if (lower.includes('actif') || lower.includes('active')) {
-        employees = employees.filter(e => e.statut === 'active');
-      }
-      
-      if (lower.includes('liste') || lower.includes('affic') || lower.includes('list') || lower.includes('tout')) {
-        if (employees.length === 0) return { text: 'Aucun employé trouvé dans la base de données.', data: [] };
-        const list = employees.map(e => `• ${e.nom} | ${e.poste || 'N/A'} | ${e.departement || 'N/A'} | ${e.statut || 'N/A'}`).join('\n');
-        return { text: `Voici la liste des employés (${employees.length}):\n\n${list}`, data: employees };
-      }
-      
-      if (lower.includes('département') || lower.includes('departement')) {
-        const dept = lower.match(/département\s+(\w+)/i)?.[1] || lower.match(/departement\s+(\w+)/i)?.[1];
-        if (dept) {
-          employees = employees.filter(e => e.departement?.toLowerCase().includes(dept));
+      try {
+        // Optimized: Only fetch when needed
+        let query = {};
+        if (lower.includes('actif') || lower.includes('active')) {
+          query.status = 'active';
         }
+
+        if (lower.includes('département') || lower.includes('departement')) {
+          const dept = lower.match(/département\s+(\w+)/i)?.[1] || lower.match(/departement\s+(\w+)/i)?.[1];
+          if (dept) {
+            query.department = { $regex: dept, $options: 'i' };
+          }
+        }
+
+        const employees = await Employee.find(query).select('firstName lastName email position department status').limit(20).lean();
+        const formattedEmployees = employees.map(e => ({
+          nom: `${e.firstName} ${e.lastName}`,
+          email: e.email,
+          poste: e.position,
+          departement: e.department,
+          statut: e.status
+        }));
+
+        if (lower.includes('liste') || lower.includes('affic') || lower.includes('list') || lower.includes('tout')) {
+          if (formattedEmployees.length === 0) return { text: 'Aucun employé trouvé.', data: [] };
+          const list = formattedEmployees.map(e => `• ${e.nom} | ${e.poste || 'N/A'} | ${e.departement || 'N/A'} | ${e.statut || 'N/A'}`).join('\n');
+          return { text: `Employés (${formattedEmployees.length}):\n\n${list}`, data: formattedEmployees };
+        }
+
+        if (formattedEmployees.length <= 5 && formattedEmployees.length > 0) {
+          const list = formattedEmployees.map(e => `• ${e.nom} - ${e.poste} - ${e.email}`).join('\n');
+          return { text: `Employés trouvés (${formattedEmployees.length}):\n\n${list}`, data: formattedEmployees };
+        }
+
+        const stats = dbContext?.stats || {};
+        return {
+          text: `J'ai ${stats.totalEmployes || 0} employés${stats.employesActifs ? ` (${stats.employesActifs} actifs)` : ''}.`,
+          data: formattedEmployees
+        };
+      } catch (error) {
+        console.error('Employee query error:', error);
+        return { text: 'Erreur lors de la recherche d\'employés.', data: [] };
       }
-      
-      if (employees.length <= 5 && employees.length > 0) {
-        const list = employees.map(e => `• ${e.nom} - ${e.poste} - ${e.email}`).join('\n');
-        return { text: `Employés trouvés (${employees.length}):\n\n${list}`, data: employees };
-      }
-      
-      return { 
-        text: `J'ai ${employees.length} employés dans la base${employees.filter(e => e.statut === 'active').length > 0 ? ` (${employees.filter(e => e.statut === 'active').length} actifs)` : ''}.\n\n` +
-          `Voulez-vous que je liste tous les employés? Ou rechercher par département?`, 
-        data: employees 
-      };
     }
-    
+
     case 'client': {
-      let clients = dbContext.clients || [];
-      
-      if (lower.includes('actif') || lower.includes('active')) {
-        clients = clients.filter(c => c.statut === 'active');
+      try {
+        let query = {};
+        if (lower.includes('actif') || lower.includes('active')) {
+          query.status = 'active';
+        }
+
+        const clients = await Client.find(query).select('name email company industry status').limit(20).lean();
+        const formattedClients = clients.map(c => ({
+          nom: c.name,
+          email: c.email,
+          entreprise: c.company,
+          secteur: c.industry,
+          statut: c.status
+        }));
+
+        if (lower.includes('liste') || lower.includes('affic') || lower.includes('list') || lower.includes('tout')) {
+          if (formattedClients.length === 0) return { text: 'Aucun client trouvé.', data: [] };
+          const list = formattedClients.map(c => `• ${c.nom} | ${c.entreprise || 'N/A'} | ${c.secteur || 'N/A'} | ${c.statut || 'N/A'}`).join('\n');
+          return { text: `Clients (${formattedClients.length}):\n\n${list}`, data: formattedClients };
+        }
+
+        if (formattedClients.length <= 5 && formattedClients.length > 0) {
+          const list = formattedClients.map(c => `• ${c.nom} - ${c.entreprise} - ${c.email}`).join('\n');
+          return { text: `Clients trouvés (${formattedClients.length}):\n\n${list}`, data: formattedClients };
+        }
+
+        const stats = dbContext?.stats || {};
+        return {
+          text: `J'ai ${stats.totalClients || 0} clients${stats.clientsActifs ? ` (${stats.clientsActifs} actifs)` : ''}.`,
+          data: formattedClients
+        };
+      } catch (error) {
+        console.error('Client query error:', error);
+        return { text: 'Erreur lors de la recherche de clients.', data: [] };
       }
-      
-      if (lower.includes('liste') || lower.includes('affic') || lower.includes('list') || lower.includes('tout')) {
-        if (clients.length === 0) return { text: 'Aucun client trouvé.', data: [] };
-        const list = clients.map(c => `• ${c.nom} | ${c.entreprise || 'N/A'} | ${c.secteur || 'N/A'} | ${c.statut || 'N/A'}`).join('\n');
-        return { text: `Voici la liste des clients (${clients.length}):\n\n${list}`, data: clients };
-      }
-      
-      if (clients.length <= 5 && clients.length > 0) {
-        const list = clients.map(c => `• ${c.nom} - ${c.entreprise} - ${c.email}`).join('\n');
-        return { text: `Clients trouvés (${clients.length}):\n\n${list}`, data: clients };
-      }
-      
-      return { text: `J'ai ${clients.length} clients${clients.filter(c => c.statut === 'active').length > 0 ? ` (${clients.filter(c => c.statut === 'active').length} actifs)` : ''}.`, data: clients };
     }
-    
+
     case 'project': {
-      let projects = dbContext.projects || [];
-      
-      if (lower.includes('actif') || lower.includes('active')) {
-        projects = projects.filter(p => p.statut === 'active' || p.statut === 'in_progress');
+      try {
+        let query = {};
+        if (lower.includes('actif') || lower.includes('active')) {
+          query.status = { $in: ['active', 'in_progress'] };
+        }
+        if (lower.includes('termine') || lower.includes('completed') || lower.includes('fini')) {
+          query.status = 'completed';
+        }
+
+        const projects = await Project.find(query).select('name description status priority progress').limit(20).lean();
+        const formattedProjects = projects.map(p => ({
+          nom: p.name,
+          description: p.description,
+          statut: p.status,
+          priorite: p.priority,
+          progression: p.progress
+        }));
+
+        if (lower.includes('liste') || lower.includes('affic') || lower.includes('list') || lower.includes('tout')) {
+          if (formattedProjects.length === 0) return { text: 'Aucun projet trouvé.', data: [] };
+          const list = formattedProjects.map(p => `• ${p.nom} | ${p.statut || 'N/A'} | ${p.progression || 0}% | Priorité: ${p.priorite || 'N/A'}`).join('\n');
+          return { text: `Projets (${formattedProjects.length}):\n\n${list}`, data: formattedProjects };
+        }
+
+        const stats = dbContext?.stats || {};
+        return {
+          text: `J'ai ${stats.totalProjets || 0} projets (${stats.projetsActifs || 0} actifs, ${stats.projetsTermines || 0} terminés).`,
+          data: formattedProjects
+        };
+      } catch (error) {
+        console.error('Project query error:', error);
+        return { text: 'Erreur lors de la recherche de projets.', data: [] };
       }
-      
-      if (lower.includes('termine') || lower.includes('completed') || lower.includes('fini')) {
-        projects = projects.filter(p => p.statut === 'completed');
-      }
-      
-      if (lower.includes('liste') || lower.includes('affic') || lower.includes('list') || lower.includes('tout')) {
-        if (projects.length === 0) return { text: 'Aucun projet trouvé.', data: [] };
-        const list = projects.map(p => `• ${p.nom} | ${p.statut || 'N/A'} | ${p.progression || 0}% | Priorité: ${p.priorite || 'N/A'}`).join('\n');
-        return { text: `Voici la liste des projets (${projects.length}):\n\n${list}`, data: projects };
-      }
-      
-      if (lower.includes('retard') || lower.includes('en retard')) {
-        const delayed = projects.filter(p => p.statut === 'in_progress');
-        if (delayed.length === 0) return { text: 'Aucun projet en retard.', data: [] };
-        const list = delayed.map(p => `• ${p.nom} - ${p.progression}%`).join('\n');
-        return { text: `Projets en cours (${delayed.length}):\n\n${list}`, data: delayed };
-      }
-      
-      return { text: `J'ai ${projects.length} projets (${projects.filter(p => p.statut === 'active' || p.statut === 'in_progress').length} en cours).`, data: projects };
     }
-    
+
     case 'task': {
-      const tasks = dbContext.tasks || [];
-      
-      if (lower.includes('liste') || lower.includes('affic') || lower.includes('tout')) {
-        if (tasks.length === 0) return { text: 'Aucune tâche trouvée.', data: [] };
-        const list = tasks.slice(0, 20).map(t => `• ${t.titre} | ${t.statut || 'N/A'} | Priorité: ${t.priorite || 'N/A'}`).join('\n');
-        return { text: `Voici les tâches (${tasks.length}):\n\n${list}`, data: tasks };
+      try {
+        const tasks = await Task.find({}).select('title status priority').limit(20).lean();
+        const formattedTasks = tasks.map(t => ({
+          titre: t.title,
+          statut: t.status,
+          priorite: t.priority
+        }));
+
+        if (lower.includes('liste') || lower.includes('affic') || lower.includes('tout')) {
+          if (formattedTasks.length === 0) return { text: 'Aucune tâche trouvée.', data: [] };
+          const list = formattedTasks.slice(0, 20).map(t => `• ${t.titre} | ${t.statut || 'N/A'} | Priorité: ${t.priorite || 'N/A'}`).join('\n');
+          return { text: `Tâches (${formattedTasks.length}):\n\n${list}`, data: formattedTasks };
+        }
+
+        const stats = dbContext?.stats || {};
+        return {
+          text: `J'ai ${stats.totalTaches || 0} tâches (${stats.tachesTerminees || 0} terminées).`,
+          data: formattedTasks
+        };
+      } catch (error) {
+        console.error('Task query error:', error);
+        return { text: 'Erreur lors de la recherche de tâches.', data: [] };
       }
-      
-      return { text: `J'ai ${tasks.length} tâches (${tasks.filter(t => t.statut === 'done' || t.statut === 'completed').length} terminées).`, data: tasks };
     }
     
     case 'stats':
     case 'general': {
+      const stats = dbContext?.stats || {};
+
       if (lower.includes('stat') || lower.includes('dashboard') || lower.includes('tableau de bord')) {
         return {
           text: `📊 TABLEAU DE BORD\n\n` +
@@ -244,7 +452,7 @@ const answerFromDatabase = async (intent, message, dbContext) => {
           data: stats
         };
       }
-      
+
       if (lower.includes('employé') || lower.includes('employee')) {
         return { text: `Employés: ${stats.totalEmployes || 0} (${stats.employesActifs || 0} actifs)`, data: { count: stats.totalEmployes, active: stats.employesActifs } };
       }
@@ -254,14 +462,14 @@ const answerFromDatabase = async (intent, message, dbContext) => {
       if (lower.includes('projet') || lower.includes('project')) {
         return { text: `Projets: ${stats.totalProjets || 0} (${stats.projetsActifs || 0} actifs, ${stats.projetsTermines || 0} terminés)`, data: { count: stats.totalProjets, active: stats.projetsActifs, completed: stats.projetsTermines } };
       }
-      
+
       return {
-        text: `📊 STATISTIQUES GLOBALES:\n\n` +
+        text: `📊 STATISTIQUES:\n\n` +
           `• ${stats.totalEmployes || 0} employés\n` +
           `• ${stats.totalClients || 0} clients\n` +
           `• ${stats.totalProjets || 0} projets\n` +
           `• ${stats.totalTaches || 0} tâches\n\n` +
-          `Posez une question plus précise!`,
+          `Posez une question précise!`,
         data: stats
       };
     }
@@ -273,22 +481,39 @@ const answerFromDatabase = async (intent, message, dbContext) => {
 
 const enhanceWithAI = async (dbAnswer, userMessage, dbContext) => {
   if (!dbAnswer || !dbAnswer.data) return dbAnswer?.text || '';
-  
-  const dataPreview = JSON.stringify(dbAnswer.data.slice(0, 10), null, 2);
-  
-  const enhancementPrompt = `Tu es un assistant IA pour une application SaaS de gestion d'entreprise.
 
-L'utilisateur a demandé: "${userMessage}"
+  // Perform RAG lookup first
+  const ragResults = await performRAGLookup(userMessage);
+  const ragContext = ragResults.length > 0 ?
+    `\n\nDONNÉES RAG PERTINENTES:\n${JSON.stringify(ragResults, null, 2)}` : '';
 
-Voici les données répondues depuis la base:
-${dataPreview}
+  const dataPreview = Array.isArray(dbAnswer.data)
+    ? JSON.stringify(dbAnswer.data.slice(0, 10), null, 2)
+    : JSON.stringify(dbAnswer.data, null, 2);
 
-Analyse ces données et fournis une réponse utile et contexte supplémentaire en français. Sois concis (2-3 phrases max).`;
+  const enhancementPrompt = `Assistant IA SaaS Marocain.
+
+CONTEXTE: ${JSON.stringify(dbContext)}
+
+RAG: ${ragContext || 'Aucune'}
+
+QUESTION: "${userMessage}"
+
+DONNÉES: ${dataPreview}
+
+INSTRUCTIONS:
+- Utilise UNIQUEMENT les données ci-dessus
+- Réponds en français professionnel
+- Précis et concis
+- Si donnée absente: "Non disponible"
+
+RÉPONSE:`;
 
   try {
-    const enhanced = await callOllama(enhancementPrompt, { temperature: 0.3, maxTokens: 256 });
-    return `${dbAnswer.text}\n\n💡 ${enhanced}`;
+    const enhanced = await callOllama(enhancementPrompt, { temperature: 0.2, maxTokens: 512 });
+    return enhanced;
   } catch (e) {
+    console.error('Ollama enhancement error:', e);
     return dbAnswer.text;
   }
 };
@@ -302,11 +527,12 @@ exports.chat = async (req, res) => {
   const userRole = user?.role || 'employee';
   
   try {
-    let dbContext = null;
+    let dbStats = null;
     try {
-      dbContext = await getDatabaseContext();
+      dbStats = await getDatabaseStats();
     } catch (dbError) {
-      console.error('Error fetching database context:', dbError.message);
+      console.error('Error fetching database stats:', dbError.message);
+      dbStats = { totalEmployes: 0, employesActifs: 0, totalClients: 0, clientsActifs: 0, totalProjets: 0, projetsActifs: 0, projetsTermines: 0, totalTaches: 0, tachesTerminees: 0, totalUsers: 0 };
     }
     
     const intent = parseQueryIntent(message);
@@ -317,33 +543,62 @@ exports.chat = async (req, res) => {
     let result;
     let source = 'db';
     
-    if (isDataQuery && dbContext) {
-      const dbAnswer = await answerFromDatabase(intent, message, dbContext);
+      if (isDataQuery && dbStats) {
+      const dbAnswer = await answerFromDatabase(intent, message, { stats: dbStats });
       if (dbAnswer && dbAnswer.text) {
         try {
-          result = await enhanceWithAI(dbAnswer, message, dbContext);
+          result = await enhanceWithAI(dbAnswer, message, { stats: dbStats });
         } catch (aiError) {
+          console.error('AI enhancement error:', aiError);
           result = dbAnswer.text;
         }
       } else {
         source = 'ai';
-        const prompt = `Tu es un assistant IA pour une application SaaS de gestion d'entreprise au Maroc.
-L'utilisateur demande: "${message}"
-Réponds en français de manière utile et concise.`;
+        const ragResults = await performRAGLookup(message);
+        const ragContext = ragResults.length > 0 ?
+          `\n\nDONNÉES RAG PERTINENTES:\n${JSON.stringify(ragResults, null, 2)}` : '';
+
+        const prompt = `Assistant IA SaaS Marocain.
+
+RAG: ${ragContext || 'Aucune'}
+
+QUESTION: "${message}"
+
+INSTRUCTIONS:
+- Utilise données RAG si disponibles
+- Français professionnel
+- Concis et précis
+
+RÉPONSE:`;
         try {
-          result = await callOllama(prompt, { temperature: 0.3, maxTokens: 512 });
+          result = await callOllama(prompt, { temperature: 0.2, maxTokens: 512 });
         } catch (ollamaError) {
+          console.error('Ollama error:', ollamaError);
           result = 'Je n\'ai pas pu traiter votre demande. Veuillez réessayer.';
         }
       }
     } else {
       source = 'ai';
-      const prompt = `Tu es un assistant IA pour une application SaaS de gestion d'entreprise au Maroc.
-L'utilisateur demande: "${message}"
-Contexte des données: ${JSON.stringify(dbContext?.stats || {})}
-Réponds en français de manière utile.`;
+      const ragResults = await performRAGLookup(message);
+      const ragContext = ragResults.length > 0 ?
+        `\n\nDONNÉES RAG PERTINENTES:\n${JSON.stringify(ragResults, null, 2)}` : '';
+
+      const prompt = `Assistant IA SaaS Marocain.
+
+STATS: ${JSON.stringify(dbStats || {})}
+
+RAG: ${ragContext || 'Aucune'}
+
+QUESTION: "${message}"
+
+INSTRUCTIONS:
+- Utilise statistiques et RAG
+- Français professionnel
+- Propose options si général
+
+RÉPONSE:`;
       try {
-        result = await callOllama(prompt, { temperature: 0.3, maxTokens: 512 });
+        result = await callOllama(prompt, { temperature: 0.2, maxTokens: 1024 });
       } catch (ollamaError) {
         console.log('Ollama not available, using fallback response');
         // Fallback responses based on message content
@@ -358,11 +613,11 @@ Réponds en français de manière utile.`;
 • Les rapports et analyses
 
 Posez-moi une question spécifique !`;
-        } else if (dbContext) {
+        } else if (dbStats) {
           result = `Je peux vous aider avec vos données :
-• ${dbContext.stats?.totalEmployes || 0} employés
-• ${dbContext.stats?.totalClients || 0} clients
-• ${dbContext.stats?.totalProjets || 0} projets
+• ${dbStats.totalEmployes || 0} employés
+• ${dbStats.totalClients || 0} clients
+• ${dbStats.totalProjets || 0} projets
 
 Que souhaitez-vous savoir ?`;
         } else {
@@ -377,7 +632,7 @@ Que souhaitez-vous savoir ?`;
     conversationHistory[convId].push({ role: 'user', content: message });
     conversationHistory[convId].push({ role: 'assistant', content: result });
     
-    res.json({ response: result, conversationId: convId, stats: dbContext?.stats, source });
+    res.json({ response: result, conversationId: convId, stats: dbStats, source });
   } catch (error) {
     console.error('Chat error:', error);
     res.status(500).json({ message: error.message });
