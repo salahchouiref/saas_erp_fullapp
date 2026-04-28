@@ -18,7 +18,6 @@ const companyRoutes = require('./routes/companies');
 const chatbotLogRoutes = require('./routes/chatbotLogs');
 const auditRoutes = require('./routes/audit');
 const aiRoutes = require('./routes/ai');
-const workflowRoutes = require('./routes/workflows');
 const notificationRoutes = require('./routes/notifications');
 
 dotenv.config();
@@ -77,7 +76,6 @@ app.use('/api/companies', companyRoutes);
 app.use('/api/chatbot-logs', chatbotLogRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/ai', aiRoutes);
-app.use('/api/workflows', workflowRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 app.get('/api', (req, res) => res.json({ message: 'SaaS AI Audit Assistant API is available' }));

@@ -8,17 +8,15 @@ import EmployeesPage from './pages/EmployeesPage';
 import ClientsPage from './pages/ClientsPage';
 import ProjectsPage from './pages/ProjectsPage';
 import AIPage from './pages/AIPage';
-import WorkflowPage from './pages/WorkflowPage';
 import { NotificationBell } from './components/NotificationBell';
 
 
 const tabs = [
-  { id: 'Dashboard', label: 'Dashboard', path: '/admin' },
-  { id: 'Employees', label: 'Employes', path: '/admin/employees' },
-  { id: 'Projects', label: 'Projets', path: '/admin/projects' },
-  { id: 'Clients', label: 'Clients', path: '/admin/clients' },
-  { id: 'AI', label: 'IA', path: '/admin/ai' },
-  { id: 'Workflows', label: 'Workflows', path: '/admin/workflows' }
+   { id: 'Dashboard', label: 'Dashboard', path: '/admin' },
+   { id: 'Employees', label: 'Employes', path: '/admin/employees' },
+   { id: 'Projects', label: 'Projets', path: '/admin/projects' },
+   { id: 'Clients', label: 'Clients', path: '/admin/clients' },
+   { id: 'AI', label: 'IA', path: '/admin/ai' }
 ];
 
 function AdminLayout() {
@@ -26,15 +24,14 @@ function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const getActiveTab = () => {
-    const path = location.pathname;
-    if (path.includes('employees')) return 'Employees';
-    if (path.includes('projects')) return 'Projects';
-    if (path.includes('clients')) return 'Clients';
-    if (path.includes('ai')) return 'AI';
-    if (path.includes('workflows')) return 'Workflows';
-    return 'Dashboard';
-  };
+const getActiveTab = () => {
+     const path = location.pathname;
+     if (path.includes('employees')) return 'Employees';
+     if (path.includes('projects')) return 'Projects';
+     if (path.includes('clients')) return 'Clients';
+     if (path.includes('ai')) return 'AI';
+     return 'Dashboard';
+   };
 
   const [activeTab, setActiveTab] = useState(getActiveTab());
 
@@ -87,7 +84,6 @@ function AdminLayout() {
         {activeTab === 'Projects' && <ProjectsPage />}
         {activeTab === 'Clients' && <ClientsPage />}
         {activeTab === 'AI' && <AIPage />}
-        {activeTab === 'Workflows' && <WorkflowPage />}
       </div>
     </div>
   );
