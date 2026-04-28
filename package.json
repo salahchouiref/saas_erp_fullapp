@@ -1,0 +1,17 @@
+{
+  "name": "saas-ai-enterprise-assistant",
+  "version": "1.0.0",
+  "description": "SaaS AI Enterprise Assistant",
+  "main": "backend/app.js",
+  "scripts": {
+    "start": "cd backend && node app.js",
+    "dev": "cd backend && nodemon app.js",
+    "test": "cd backend && npm test",
+    "install-backend": "cd backend && npm install",
+    "install-frontend": "cd frontend && npm install",
+    "install-all": "npm run install-backend && npm run install-frontend"
+  },
+  "keywords": ["saas", "ai", "enterprise", "assistant"],
+  "author": "",
+  "license": "ISC"
+}
