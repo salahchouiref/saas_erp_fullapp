@@ -198,7 +198,7 @@ export default function KanbanBoard({ projectId, onClose }) {
   const loadTasks = async () => {
     setLoading(true);
     try {
-      const data = await getTasks({ projectId });
+      const data = await getTasks(projectId);
       setTasks(data);
     } catch (e) {
       addToast(e.data?.message || 'Erreur de chargement', 'error');
@@ -213,10 +213,10 @@ export default function KanbanBoard({ projectId, onClose }) {
 
   const handleSave = async (taskId, data) => {
     if (taskId) {
-      await updateTask(taskId, data);
+      await updateTask(projectId, taskId, data);
       addToast('Tâche mise à jour', 'success');
     } else {
-      await createTask(data);
+      await createTask(projectId, data);
       addToast('Tâche créée', 'success');
     }
     loadTasks();
@@ -227,7 +227,7 @@ export default function KanbanBoard({ projectId, onClose }) {
   const handleDelete = async (taskId) => {
     if (!window.confirm('Supprimer cette tâche ?')) return;
     try {
-      await deleteTask(taskId);
+      await deleteTask(projectId, taskId);
       addToast('Tâche supprimée', 'success');
       loadTasks();
     } catch (e) {
@@ -237,7 +237,7 @@ export default function KanbanBoard({ projectId, onClose }) {
 
   const handleStatusChange = async (task, newStatus) => {
     try {
-      await updateTask(task._id, { status: newStatus });
+      await updateTask(projectId, task._id, { status: newStatus });
       loadTasks();
     } catch (e) {
       addToast(e.data?.message || 'Erreur', 'error');

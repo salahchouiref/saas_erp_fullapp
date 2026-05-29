@@ -53,9 +53,10 @@ export default function EmployeesPage() {
     setLoading(true);
     try {
       const data = await getEmployees(filter);
-      setEmployees(data);
+      setEmployees(data.employees || data.data || data || []);
     } catch (e) {
       addToast(e.data?.message || 'Erreur de chargement', 'error');
+      setEmployees([]);
     } finally {
       setLoading(false);
     }

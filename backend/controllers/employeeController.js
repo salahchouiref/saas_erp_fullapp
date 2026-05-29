@@ -27,7 +27,7 @@ exports.createEmployee = async (req, res) => {
 
 exports.getEmployees = async (req, res) => {
   try {
-    const { search, department, position, status, minSalary, maxSalary, sortBy, sortOrder } = req.query;
+    const { search, department, position, status, minSalary, maxSalary, sortBy, sortOrder, page = 1, limit = 20 } = req.query;
     const query = {};
 
     if (search) {
@@ -52,11 +52,25 @@ exports.getEmployees = async (req, res) => {
     const sort = {};
     sort[sortBy || 'createdAt'] = sortOrder === 'asc' ? 1 : -1;
 
+    const skip = (Number(page) - 1) * Number(limit);
+    const total = await Employee.countDocuments(query);
+
     const employees = await Employee.find(query)
       .populate('userId', 'name email role')
       .sort(sort)
+      .skip(skip)
+      .limit(Number(limit))
       .lean();
-    res.json(employees);
+
+    res.json({
+      employees,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages: Math.ceil(total / Number(limit))
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -108,14 +122,32 @@ exports.deleteEmployee = async (req, res) => {
 
 exports.getEmployeeStats = async (req, res) => {
   try {
-    const stats = await Employee.aggregate([
-      { $group: {
-        _id: '$status',
-        count: { $sum: 1 },
-        totalSalary: { $sum: '$salary' }
-      }}
+    const statusStats = await Employee.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 }, totalSalary: { $sum: '$salary' } }}
     ]);
-    res.json(stats);
+
+    const departmentStats = await Employee.aggregate([
+      { $match: { status: 'active' } },
+      { $group: { _id: '$department', count: { $sum: 1 }, avgSalary: { $avg: '$salary' } } }
+    ]);
+
+    const totalEmployees = await Employee.countDocuments();
+    const activeEmployees = await Employee.countDocuments({ status: 'active' });
+    const totalPayroll = await Employee.aggregate([
+      { $match: { status: 'active' } },
+      { $group: { _id: null, total: { $sum: '$salary' } } }
+    ]);
+
+    res.json({
+      byStatus: statusStats,
+      byDepartment: departmentStats,
+      summary: {
+        total: totalEmployees,
+        active: activeEmployees,
+        inactive: totalEmployees - activeEmployees,
+        monthlyPayroll: totalPayroll[0]?.total || 0
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

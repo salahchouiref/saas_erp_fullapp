@@ -27,9 +27,24 @@ function getStatusLabel(status) {
   return s ? s.label : status;
 }
 
+const exportToCSV = (clients) => {
+  const headers = ['Nom', 'Entreprise', 'Email', 'Téléphone', 'Secteur', 'Statut', 'Chiffre Aff.', 'Ville'];
+  const rows = clients.map(c => [
+    c.name, c.company, c.email, c.phone, c.industry, c.status, c.annualRevenue || 0, c.address?.city || ''
+  ]);
+  const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v || ''}"`).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `clients-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+};
+
 export default function ClientsPage() {
   const [clients, setClients] = useState([]);
   const [filter, setFilter] = useState({ search: '', status: '', industry: '' });
+  const [viewMode, setViewMode] = useState('list');
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -134,6 +149,15 @@ export default function ClientsPage() {
           <p className="text-slate-500 mt-1">Gérez vos clients et partenaires</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportToCSV(clients)}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm hover:bg-slate-50"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Exporter
+          </button>
           <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium">
             {clients.length} client(s)
           </span>

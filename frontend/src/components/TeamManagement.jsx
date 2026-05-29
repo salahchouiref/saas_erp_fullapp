@@ -62,7 +62,7 @@ export default function TeamManagement({ projectId, onClose }) {
       return;
     }
     try {
-      await addTeamMember({ projectId, ...newMember });
+      await addTeamMember(projectId, newMember);
       addToast('Membre ajouté', 'success');
       setShowAdd(false);
       setNewMember({ userId: '', role: 'developer' });
@@ -75,7 +75,7 @@ export default function TeamManagement({ projectId, onClose }) {
   const handleRemove = async (memberId) => {
     if (!window.confirm('Retirer ce membre de l\'équipe ?')) return;
     try {
-      await removeTeamMember(memberId);
+      await removeTeamMember(projectId, memberId);
       addToast('Membre retiré', 'success');
       loadData();
     } catch (e) {

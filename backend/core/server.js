@@ -4,16 +4,12 @@ const dotenv = require('dotenv');
 const http = require('http');
 const socketIo = require('socket.io');
 const cookieParser = require('cookie-parser');
-const connectDB = require('./config/db');
+const connectDB = require('./database');
+const { loadModules } = require('../platform/module.loader');
 const path = require('path');
-const { loadModules } = require('./platform/module.loader');
-const tenantMiddleware = require('./core/tenant.middleware');
-
-const authRoutes = require('./routes/auth');
-const companyRoutes = require('./routes/companies');
-const chatbotLogRoutes = require('./routes/chatbotLogs');
 
 dotenv.config();
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -55,13 +51,10 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(cookieParser());
 app.use(express.json());
-app.use(tenantMiddleware);
 
 connectDB();
 
-app.use('/api/auth', authRoutes);
-app.use('/api/companies', companyRoutes);
-app.use('/api/chatbot-logs', chatbotLogRoutes);
+app.set('io', io);
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -74,19 +67,14 @@ io.on('connection', (socket) => {
   });
 });
 
-app.set('io', io);
-
-const notificationController = require('./controllers/notificationController');
-notificationController.setSocketIO(io);
-
-const modulesDir = path.join(__dirname, 'modules');
+const modulesDir = path.join(__dirname, '..', 'modules');
 const loadedModules = loadModules(modulesDir, app, io);
 
 app.get('/api', (req, res) => res.json({ message: 'SaaS AI ERP API is available' }));
 app.get('/', (req, res) => res.json({ message: 'SaaS AI ERP backend is running' }));
 
 app.get('/api/features', (req, res) => {
-  const { getEnabledFeatures } = require('./platform/feature.registry');
+  const { getEnabledFeatures } = require('../platform/feature.registry');
   res.json({ features: getEnabledFeatures() });
 });
 
@@ -98,4 +86,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, server };
+module.exports = { app, server, io };

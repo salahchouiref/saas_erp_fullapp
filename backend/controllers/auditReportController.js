@@ -2,7 +2,8 @@ const AuditReport = require('../models/AuditReport');
 
 exports.createAuditReport = async (req, res) => {
   try {
-    const report = await AuditReport.create(req.body);
+    const data = { ...req.body, createdBy: req.user?.id };
+    const report = await AuditReport.create(data);
     res.status(201).json(report);
   } catch (error) {
     res.status(500).json({ message: error.message });
