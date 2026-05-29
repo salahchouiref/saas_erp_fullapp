@@ -374,7 +374,7 @@ Les tests utilisent **Jest** et **Supertest**.
 
 ## 📄 Licence
 
-Ce projet est développé dans le cadre d'un projet pédagogique (PFE).
+Ce projet est développé dans le cadre d'un projet pédagogique (Projet Fin de mdoule).
 
 ---
 
